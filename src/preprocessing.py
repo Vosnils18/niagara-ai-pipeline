@@ -1,13 +1,11 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, TimeSeriesSplit
 
 def load_data(file_path):
     """Load data from JSON file and convert to DataFrame."""
-    with open(file_path, "r") as f:
-        data = json.load(f)
-    df = pd.DataFrame(data)
+    pd.read_csv(file_path, parse_dates=["timestamp"], index_col="timestamp")
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df.set_index("timestamp", inplace=True)
     return df
@@ -92,12 +90,20 @@ def preprocess_data(file_path, test_size=0.2, random_state=42):
     X_seq, y_seq = create_sequences(X_scaled, y_scaled)
 
     # Split data
-    X_train, X_test, y_train, y_test = train_test_split(X_seq, y_seq, test_size=test_size, random_state=random_state)
+    # X_train, X_test, y_train, y_test = train_test_split(X_seq, y_seq, test_size=test_size, random_state=random_state)
+    # return X_train, X_test, y_train, y_test, scaler
+
+    # Split data without changing order of time series
+    tscv = TimeSeriesSplit()
+
+    for train_index, test_index in tscv.split(X):
+        X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+        y_train, y_test = y.iloc[train_index], y.iloc[test_index]
 
     return X_train, X_test, y_train, y_test, scaler
 
 if __name__ == "__main__":
-    file_path = "../data/sample_niagara_data_realistic.json"
+    file_path = "../data/lora_data_5_6_25.csv"
     X_train, X_test, y_train, y_test, scaler = preprocess_data(file_path)
     print("Preprocessing complete. Data shapes:")
     print(f"X_train: {X_train.shape}")
