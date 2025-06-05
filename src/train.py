@@ -11,22 +11,22 @@ from preprocessing import preprocess_data
 def create_model(input_shape):
     """Create a dual-layer LSTM model with dropout."""
     model = Sequential([
-        LSTM(50, activation='relu', input_shape=input_shape, return_sequences=True),
-        Dropout(0.2),
-        LSTM(50, activation='relu'),
-        Dropout(0.2),
+        LSTM(128, activation='relu', input_shape=input_shape, return_sequences=True),
+        Dropout(0.05),
+        LSTM(64, activation='relu'),
+        Dense(16),
         Dense(1)
     ])
     return model
 
-def train_model(X_train, y_train, X_test, y_test, epochs=200, batch_size=32):
+def train_model(X_train, y_train, X_test, y_test, epochs=200, batch_size=8):
     """Train the LSTM model."""
     model = create_model((X_train.shape[1], X_train.shape[2]))
     
     model.compile(optimizer=Adam(learning_rate=0.001), loss='mse')
     
     early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-    model_checkpoint = ModelCheckpoint('best_model.h5', save_best_only=True, monitor='val_loss', mode='min')
+    model_checkpoint = ModelCheckpoint('models/best_model.h5', save_best_only=True, monitor='val_loss', mode='min')
     
     history = model.fit(
         X_train, y_train,
@@ -41,6 +41,8 @@ def train_model(X_train, y_train, X_test, y_test, epochs=200, batch_size=32):
 
 def evaluate_model(model, X_test, y_test, scaler):
     """Evaluate the trained model."""
+    print("X_test shape:", X_test.shape)
+    print("y_test shape:", y_test.shape)
     y_pred_scaled = model.predict(X_test)
     y_pred = scaler.inverse_transform(y_pred_scaled)
     y_true = scaler.inverse_transform(y_test)
@@ -77,21 +79,22 @@ def plot_results(y_true, y_pred, history):
 
 def main():
     # Load and preprocess data
-    file_path = "../data/sample_niagara_data_realistic.json"
-    X_train, X_test, y_train, y_test, scaler = preprocess_data(file_path)
+    file_path = "./data/lora_data_5_6_25.csv"
+    X_train, X_test, y_train, y_test, x_scaler, y_scaler = preprocess_data(file_path)
+    print("X_train shape (should be N, 144, 24):", X_train.shape)
     
     # Train model
     model, history = train_model(X_train, y_train, X_test, y_test)
     
     # Evaluate model
-    y_true, y_pred = evaluate_model(model, X_test, y_test, scaler)
+    y_true, y_pred = evaluate_model(model, X_test, y_test, y_scaler)
     
     # Plot results
     plot_results(y_true, y_pred, history)
     
     # Save the model
-    model.save('../models/lstm_energy_prediction_model.h5')
-    print("Model saved as '../models/lstm_energy_prediction_model.h5'")
+    model.save('./models/lstm_energy_prediction_model.keras')
+    print("Model saved as './models/lstm_energy_prediction_model.keras'")
 
 if __name__ == "__main__":
     main()

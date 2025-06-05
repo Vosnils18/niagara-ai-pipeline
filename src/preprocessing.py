@@ -1,110 +1,109 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import train_test_split, TimeSeriesSplit
+from sklearn.model_selection import TimeSeriesSplit
 
 def load_data(file_path):
-    """Load data from JSON file and convert to DataFrame."""
-    pd.read_csv(file_path, parse_dates=["timestamp"], index_col="timestamp")
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df.set_index("timestamp", inplace=True)
+    df = pd.read_csv(file_path, parse_dates=["meter_timestamp"])
+    df["meter_timestamp"] = pd.to_datetime(df["meter_timestamp"])
+    df = df.set_index("meter_timestamp")
     return df
 
-def resample_hourly(df):
-    """Resample data to hourly averages."""
-    return df.resample("1h").mean().dropna()
+def add_cost_features(df, low_tariff=0.20, normal_tariff=0.25):
+    df["import_low_tariff_delta_Wh"] = df["active_import_low_tariff_Wh"].diff().clip(lower=0)
+    df["import_normal_tariff_delta_Wh"] = df["active_import_normal_tariff_Wh"].diff().clip(lower=0)
+    df["cost_low_tariff"] = df["import_low_tariff_delta_Wh"] * (low_tariff / 1000)
+    df["cost_normal_tariff"] = df["import_normal_tariff_delta_Wh"] * (normal_tariff / 1000)
+    df["cost_total"] = df["cost_low_tariff"] + df["cost_normal_tariff"]
+    df = df.dropna()
+    return df
 
 def create_time_features(df):
-    """Create time-based features."""
     df["hour"] = df.index.hour
+    df["minute"] = df.index.minute
     df["dayofweek"] = df.index.dayofweek
     df["is_weekend"] = df["dayofweek"].isin([5, 6]).astype(int)
-    df["day_of_year"] = df.index.dayofyear
-    df["month"] = df.index.month
     return df
 
-def create_lag_features(df):
-    """Create lag and rolling average features."""
-    df["prev_day_consumption"] = df["energy_kWh"].shift(24)
-    df["rolling_7d_avg"] = df["energy_kWh"].rolling(window=24*7).mean()
-    df["prev_week_consumption"] = df["energy_kWh"].shift(24*7)
+def create_lag_features(df, lag=1):
+    for col in [
+        "current_L1_A", "current_L2_A", "current_L3_A",
+        "voltage_L1_V", "voltage_L2_V", "voltage_L3_V",
+        "total_active_import_power_W", "cost_total"
+    ]:
+        df[f"{col}_lag{lag}"] = df[col].shift(lag)
     return df
 
-def create_cyclical_features(df, col_name, period, start_num=0):
-    """Create cyclical features using sine and cosine transformations."""
-    df[f'sin_{col_name}'] = np.sin(2 * np.pi * (df[col_name] - start_num) / period)
-    df[f'cos_{col_name}'] = np.cos(2 * np.pi * (df[col_name] - start_num) / period)
-    return df
-
-def create_interaction_features(df):
-    """Create interaction features."""
-    df['hour_weekend'] = df['hour'] * df['is_weekend']
+def create_cyclical_features(df):
+    df["sin_hour"] = np.sin(2 * np.pi * df["hour"] / 24)
+    df["cos_hour"] = np.cos(2 * np.pi * df["hour"] / 24)
+    df["sin_minute"] = np.sin(2 * np.pi * df["minute"] / 60)
+    df["cos_minute"] = np.cos(2 * np.pi * df["minute"] / 60)
+    df["sin_dayofweek"] = np.sin(2 * np.pi * df["dayofweek"] / 7)
+    df["cos_dayofweek"] = np.cos(2 * np.pi * df["dayofweek"] / 7)
     return df
 
 def prepare_features(df):
-    """Prepare all features."""
     df = create_time_features(df)
-    df = create_lag_features(df)
-    df = create_cyclical_features(df, 'hour', 24, 0)
-    df = create_cyclical_features(df, 'dayofweek', 7, 0)
-    df = create_cyclical_features(df, 'month', 12, 1)
-    df = create_interaction_features(df)
+    df = create_lag_features(df, lag=1)
+    df = create_cyclical_features(df)
+    df = df.dropna()
     return df
 
-def scale_data(X, y):
-    """Scale features and target."""
-    scaler = MinMaxScaler()
-    X_scaled = scaler.fit_transform(X)
-    y_scaled = scaler.fit_transform(y.reshape(-1, 1))
-    return X_scaled, y_scaled, scaler
+def scale_data(X_train_raw, X_test_raw, y_train_raw, y_test_raw):
+    x_scaler = MinMaxScaler()
+    y_scaler = MinMaxScaler()
+    X_train_scaled = x_scaler.fit_transform(X_train_raw)
+    X_test_scaled = x_scaler.transform(X_test_raw)
+    y_train_scaled = y_scaler.fit_transform(y_train_raw.reshape(-1, 1))
+    y_test_scaled = y_scaler.transform(y_test_raw.reshape(-1, 1))
+    return X_train_scaled, X_test_scaled, y_train_scaled, y_test_scaled, x_scaler, y_scaler
 
-def create_sequences(X, y, time_steps=24):
-    """Create sequences for LSTM input."""
+def create_sequences(X, y, time_steps=144):
     Xs, ys = [], []
     for i in range(len(X) - time_steps):
         Xs.append(X[i:(i + time_steps)])
         ys.append(y[i + time_steps])
     return np.array(Xs), np.array(ys)
 
-def preprocess_data(file_path, test_size=0.2, random_state=42):
-    """Main preprocessing function."""
-    # Load and prepare data
+def preprocess_data(file_path, low_tariff=0.20, normal_tariff=0.25, test_size=0.2, time_steps=6):
     df = load_data(file_path)
-    df = resample_hourly(df)
+    df = add_cost_features(df, low_tariff=low_tariff, normal_tariff=normal_tariff)
     df = prepare_features(df)
-    df.dropna(inplace=True)
 
-    # Define features
-    features = ['sin_hour', 'cos_hour', 'sin_dayofweek', 'cos_dayofweek', 'sin_month', 'cos_month',
-                'is_weekend', 'day_of_year', 'prev_day_consumption', 'rolling_7d_avg',
-                'hour_weekend', 'prev_week_consumption']
+    features = [
+        "current_L1_A", "current_L2_A", "current_L3_A",
+        "voltage_L1_V", "voltage_L2_V", "voltage_L3_V",
+        "total_active_import_power_W", "cost_total_lag1",
+        "current_L1_A_lag1", "current_L2_A_lag1", "current_L3_A_lag1",
+        "voltage_L1_V_lag1", "voltage_L2_V_lag1", "voltage_L3_V_lag1",
+        "total_active_import_power_W_lag1",
+        "hour", "minute", "is_weekend",
+        "sin_hour", "cos_hour", "sin_minute", "cos_minute",
+        "sin_dayofweek", "cos_dayofweek"
+    ]
 
-    # Prepare X and y
     X = df[features].values
-    y = df['energy_kWh'].values.reshape(-1, 1)
+    y = df["cost_total"].values
 
-    # Scale data
-    X_scaled, y_scaled, scaler = scale_data(X, y)
+    split_idx = int(len(X) * (1 - test_size))
+    X_train_raw, X_test_raw = X[:split_idx], X[split_idx:]
+    y_train_raw, y_test_raw = y[:split_idx], y[split_idx:]
 
-    # Create sequences
-    X_seq, y_seq = create_sequences(X_scaled, y_scaled)
+    X_train, X_test, y_train, y_test, x_scaler, y_scaler = scale_data(
+        X_train_raw, X_test_raw, y_train_raw, y_test_raw
+    )
 
-    # Split data
-    # X_train, X_test, y_train, y_test = train_test_split(X_seq, y_seq, test_size=test_size, random_state=random_state)
-    # return X_train, X_test, y_train, y_test, scaler
+    X_train, y_train = create_sequences(X_train, y_train, time_steps=time_steps)
+    X_test, y_test = create_sequences(X_test, y_test, time_steps=time_steps)
 
-    # Split data without changing order of time series
-    tscv = TimeSeriesSplit()
-
-    for train_index, test_index in tscv.split(X):
-        X_train, X_test = X.iloc[train_index], X.iloc[test_index]
-        y_train, y_test = y.iloc[train_index], y.iloc[test_index]
-
-    return X_train, X_test, y_train, y_test, scaler
+    return X_train, X_test, y_train, y_test, x_scaler, y_scaler
 
 if __name__ == "__main__":
-    file_path = "../data/lora_data_5_6_25.csv"
-    X_train, X_test, y_train, y_test, scaler = preprocess_data(file_path)
+    file_path = "./data/lora_data_5_6_25.csv"
+    X_train, X_test, y_train, y_test, x_scaler, y_scaler = preprocess_data(
+        file_path, time_steps=6  # 24 hours of 10-min intervals
+    )
     print("Preprocessing complete. Data shapes:")
     print(f"X_train: {X_train.shape}")
     print(f"X_test: {X_test.shape}")
