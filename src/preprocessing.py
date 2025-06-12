@@ -66,15 +66,14 @@ def create_sequences(X, y, time_steps=144):
         ys.append(y[i + time_steps])
     return np.array(Xs), np.array(ys)
 
-def preprocess_data(file_path, low_tariff=0.20, normal_tariff=0.25, test_size=0.2, time_steps=6):
+def preprocess_data(file_path, low_tariff=0.20, normal_tariff=0.25, test_size=0.2, time_steps=144):
     df = load_data(file_path)
     df = add_cost_features(df, low_tariff=low_tariff, normal_tariff=normal_tariff)
     df = prepare_features(df)
 
     features = [
         "current_L1_A", "current_L2_A", "current_L3_A",
-        "voltage_L1_V", "voltage_L2_V", "voltage_L3_V",
-        "total_active_import_power_W", "cost_total_lag1",
+        "voltage_L1_V", "voltage_L2_V", "voltage_L3_V", "cost_total_lag1",
         "current_L1_A_lag1", "current_L2_A_lag1", "current_L3_A_lag1",
         "voltage_L1_V_lag1", "voltage_L2_V_lag1", "voltage_L3_V_lag1",
         "total_active_import_power_W_lag1",
@@ -84,7 +83,7 @@ def preprocess_data(file_path, low_tariff=0.20, normal_tariff=0.25, test_size=0.
     ]
 
     X = df[features].values
-    y = df["cost_total"].values
+    y = df["total_active_import_power_W"].values
 
     split_idx = int(len(X) * (1 - test_size))
     X_train_raw, X_test_raw = X[:split_idx], X[split_idx:]
@@ -100,7 +99,7 @@ def preprocess_data(file_path, low_tariff=0.20, normal_tariff=0.25, test_size=0.
     return X_train, X_test, y_train, y_test, x_scaler, y_scaler
 
 if __name__ == "__main__":
-    file_path = "./data/lora_data_5_6_25.csv"
+    file_path = "./data/lora_data_12_6_25.csv"
     X_train, X_test, y_train, y_test, x_scaler, y_scaler = preprocess_data(
         file_path, time_steps=6  # 24 hours of 10-min intervals
     )

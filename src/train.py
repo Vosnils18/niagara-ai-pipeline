@@ -19,7 +19,7 @@ def create_model(input_shape):
     ])
     return model
 
-def train_model(X_train, y_train, X_test, y_test, epochs=200, batch_size=8):
+def train_model(X_train, y_train, X_test, y_test, epochs=200, batch_size=16):
     """Train the LSTM model."""
     model = create_model((X_train.shape[1], X_train.shape[2]))
     
@@ -79,7 +79,7 @@ def plot_results(y_true, y_pred, history):
 
 def main():
     # Load and preprocess data
-    file_path = "./data/lora_data_5_6_25.csv"
+    file_path = "./data/lora_data_12_6_25.csv"
     X_train, X_test, y_train, y_test, x_scaler, y_scaler = preprocess_data(file_path)
     print("X_train shape (should be N, 144, 24):", X_train.shape)
     

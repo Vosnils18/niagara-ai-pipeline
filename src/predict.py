@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from preprocessing import preprocess_data  # this is your updated preprocess_data function
 
-def load_latest_data(file_path, time_steps=6):
+def load_latest_data(file_path, time_steps=144):
     """
     Load and preprocess the latest data for prediction.
     time_steps=144 for 24h if using 10-min intervals.
@@ -19,7 +19,7 @@ def load_latest_data(file_path, time_steps=6):
     initial_sequence = X_test[-1:]  # shape: (1, time_steps, num_features)
     return initial_sequence, y_scaler
 
-def predict_future(model, initial_sequence, y_scaler, time_steps=6):
+def predict_future(model, initial_sequence, y_scaler, time_steps=144):
     predictions = []
     current_sequence = initial_sequence.copy()
     print("AYO", current_sequence)
@@ -47,17 +47,17 @@ def plot_with_past(file_path, predictions, time_steps, interval_minutes=10):
     df = df.set_index("meter_timestamp")
     df = df.sort_index()
 
-    # Reconstruct real cost as in preprocess_data
-    df["import_low_tariff_delta_Wh"] = df["active_import_low_tariff_Wh"].diff().clip(lower=0)
-    df["import_normal_tariff_delta_Wh"] = df["active_import_normal_tariff_Wh"].diff().clip(lower=0)
-    df["cost_low_tariff"] = df["import_low_tariff_delta_Wh"] * (0.20 / 1000)
-    df["cost_normal_tariff"] = df["import_normal_tariff_delta_Wh"] * (0.25 / 1000)
-    df["cost_total"] = df["cost_low_tariff"] + df["cost_normal_tariff"]
-    df = df.dropna()
+    # # Reconstruct real cost as in preprocess_data
+    # df["import_low_tariff_delta_Wh"] = df["active_import_low_tariff_Wh"].diff().clip(lower=0)
+    # df["import_normal_tariff_delta_Wh"] = df["active_import_normal_tariff_Wh"].diff().clip(lower=0)
+    # df["cost_low_tariff"] = df["import_low_tariff_delta_Wh"] * (0.20 / 1000)
+    # df["cost_normal_tariff"] = df["import_normal_tariff_delta_Wh"] * (0.25 / 1000)
+    # df["cost_total"] = df["cost_low_tariff"] + df["cost_normal_tariff"]
+    # df = df.dropna()
 
     # Get the last 2 days of real data (288 points for 10min interval)
     past_points = 288
-    real_past = df["cost_total"].iloc[-past_points:]
+    real_past = df["total_active_import_power_W"].iloc[-past_points:]
     last_time = real_past.index[-1]
 
     # Future timestamps
@@ -69,7 +69,7 @@ def plot_with_past(file_path, predictions, time_steps, interval_minutes=10):
     plt.plot(future_times, predictions, label="Predicted Future", color="orange")
     plt.axvline(x=last_time, color="gray", linestyle="--", alpha=0.7)
     plt.xlabel("Time")
-    plt.ylabel("Cost (EUR)")
+    plt.ylabel("Load (Watt)")
     plt.title("Energy Cost: Past 2 Days (10-min) + Next 24 Steps Prediction")
     plt.legend()
     plt.tight_layout()
@@ -80,19 +80,19 @@ def plot_with_past(file_path, predictions, time_steps, interval_minutes=10):
 def main():
     model = load_model('./models/lstm_energy_prediction_model.keras', compile=False)
 
-    file_path = "./data/lora_data_5_6_25.csv"
+    file_path = "./data/lora_data_12_6_25.csv"
     # For 24 steps into future at 10min/step = next 4 hours
-    time_steps = 6  # 24 hours context for LSTM
-    num_steps = 12    # predict next 24 steps (4 hours)
+    time_steps = 288  # 24 hours context for LSTM
+    num_steps = 144    # predict next 24 steps (4 hours)
 
     initial_sequence, y_scaler = load_latest_data(file_path, time_steps=time_steps)
 
     predictions = predict_future(model, initial_sequence, y_scaler, num_steps)
     plot_with_past(file_path, predictions, time_steps, interval_minutes=10)
 
-    print("Predicted costs (next 24 x 10-min intervals):")
+    print("Predicted Watts (next 24 x 10-min intervals):")
     for i, pred in enumerate(predictions):
-        print(f"{i+1:02d} x 10min from last data point: {pred:.4f} EUR")
+        print(f"{i+1:02d} x 10min from last data point: {pred:.4f} W")
     print("Plot saved as 'data/output/future_predictions.png'")
 
 if __name__ == "__main__":
